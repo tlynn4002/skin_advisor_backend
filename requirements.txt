@@ -1,9 +1,9 @@
 fastapi
 uvicorn[standard]
 transformers
-torch==2.8.0
-torchvision==0.15.2
-torchaudio==2.8.0
+torch
+torchvision
+torchaudio
 python-multipart
 pillow
 requests
@@ -11,3 +11,4 @@ pydantic[dotenv]
 aiofiles
 jinja2
 datasets
+
