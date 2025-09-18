@@ -1,11 +1,5 @@
 fastapi
 uvicorn[standard]
-transformers
-torch
-torchvision
-torchaudio
-pillow
 requests
 pydantic
-aiofiles
-jinja2
+python-multipart
