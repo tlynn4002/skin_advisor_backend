@@ -18,7 +18,7 @@ HF_IMAGE_URL = f"https://api-inference.huggingface.co/models/{HF_IMAGE_MODEL}"
 # Nếu private thì set token trong Render → Environment Variables: HF_API_TOKEN
 HF_HEADERS = {}
 if "HF_TOKEN" in os.environ:
-    HF_HEADERS = {HF_HEADERS = {"Authorization": f"Bearer {os.getenv('HF_TOKEN')}"}}
+    HF_HEADERS = {"Authorization": f"Bearer {os.getenv('HF_TOKEN')}"}
 
 # ==== FastAPI setup ====
 app = FastAPI()
