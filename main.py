@@ -1,24 +1,23 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import Optional
-from transformers import pipeline, AutoTokenizer, AutoModelForSeq2SeqLM
 from fastapi.middleware.cors import CORSMiddleware
+import requests
+import os
 
-# ==== Load fine-tuned Vit5 model từ Hugging Face ====
-MODEL_NAME = "lingling707/vit5-skinbot"  
+# ==== Hugging Face API Setup ====
+HF_TOKEN = os.getenv("HF_TOKEN")  # đặt trong Render Dashboard > Environment
+MODEL_NAME = "lingling707/vit5-skinbot"
+API_URL = f"https://api-inference.huggingface.co/models/{MODEL_NAME}"
+HEADERS = {"Authorization": f"Bearer {HF_TOKEN}"}
 
-tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-model = AutoModelForSeq2SeqLM.from_pretrained(MODEL_NAME)
-
-# ==== Pipeline chatbot ====
-chatbot = pipeline(
-    "text2text-generation",
-    model=model,
-    tokenizer=tokenizer,
-    device=-1  # Render không có GPU, dùng CPU
-)
+# ==== Gọi Hugging Face API ====
+def query(payload):
+    response = requests.post(API_URL, headers=HEADERS, json=payload, timeout=60)
+    return response.json()
 
 # ==== Model phân loại ảnh da ====
+from transformers import pipeline
 image_model = pipeline("image-classification", model="dima806/skin_types_image_detection")
 
 # ==== FastAPI setup ====
@@ -36,8 +35,7 @@ class RequestData(BaseModel):
     userMessage: str
     imageUrl: Optional[str] = None
 
-
-# ==== Mapping label -> skin type (tuỳ chỉnh theo nhu cầu) ====
+# ==== Mapping label -> skin type ====
 def map_labels_to_skin_type(predictions):
     labels = [p["label"].lower() for p in predictions]
     if any(x in labels for x in ["acne", "pimple", "oily"]):
@@ -53,12 +51,10 @@ def map_labels_to_skin_type(predictions):
     else:
         return "không rõ, cần thêm ảnh chất lượng hơn"
 
-
 # ==== Routes ====
 @app.get("/")
 async def root():
-    return {"message": "Skin Advisor API (Vit5 + Skin Classification) is running 🚀"}
-
+    return {"message": "Skin Advisor API (Vit5 via HF API + Skin Classification) is running 🚀"}
 
 @app.post("/skinAdvisor")
 async def skin_advisor(data: RequestData):
@@ -93,9 +89,10 @@ async def skin_advisor(data: RequestData):
         )
 
     try:
-        result = chatbot(prompt, max_new_tokens=120)
-        reply = result[0]["generated_text"].strip()
-        if not reply:
+        result = query({"inputs": prompt})
+        if isinstance(result, list) and "generated_text" in result[0]:
+            reply = result[0]["generated_text"].strip()
+        else:
             reply = "Xin lỗi, mình chưa có câu trả lời phù hợp."
     except Exception as e:
         print("Chatbot error:", e)
