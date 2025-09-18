@@ -3,29 +3,23 @@ from pydantic import BaseModel
 from typing import Optional
 from transformers import pipeline, AutoTokenizer, AutoModelForSeq2SeqLM
 from fastapi.middleware.cors import CORSMiddleware
-from datasets import load_dataset
 
-# ==== Load fine-tune dataset (chỉ để demo, không train online) ====
-# File: skincare_asking.jsonl, mỗi dòng {"input": "...", "output": "..."}
-dataset_file = "skincare_asking.jsonl"
-dataset = load_dataset("json", data_files=dataset_file)["train"]
+# ==== Load fine-tuned Vit5 model từ Hugging Face ====
+MODEL_NAME = "lingling707/vit5-skinbot"  
 
-# ==== Load tokenizer & model Vit5 fine-tune nếu có ====
-# Nếu chưa fine-tune, dùng model base
-model_name = "./vit5-skinbot"  # hoặc "VietAI/vit5-base" nếu chưa fine-tune
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+model = AutoModelForSeq2SeqLM.from_pretrained(MODEL_NAME)
 
-# ==== Tạo pipeline chatbot ====
+# ==== Pipeline chatbot ====
 chatbot = pipeline(
     "text2text-generation",
     model=model,
     tokenizer=tokenizer,
-    device=0  # GPU Colab: 0, CPU: -1
+    device=-1  # Render không có GPU, dùng CPU
 )
 
 # ==== Model phân loại ảnh da ====
-image_model = pipeline("image-classification", model="microsoft/resnet-50")
+image_model = pipeline("image-classification", model="dima806/skin_types_image_detection")
 
 # ==== FastAPI setup ====
 app = FastAPI()
@@ -42,49 +36,69 @@ class RequestData(BaseModel):
     userMessage: str
     imageUrl: Optional[str] = None
 
-SKIN_LABELS = {"face","skin","pimple","freckles","wrinkle","acne","blemish","complexion","nose","cheek","forehead"}
 
-def filter_skin_labels(predictions):
-    return ", ".join([r['label'] for r in predictions if r['label'].lower() in SKIN_LABELS])
+# ==== Mapping label -> skin type (tuỳ chỉnh theo nhu cầu) ====
+def map_labels_to_skin_type(predictions):
+    labels = [p["label"].lower() for p in predictions]
+    if any(x in labels for x in ["acne", "pimple", "oily"]):
+        return "da dầu, dễ nổi mụn"
+    elif any(x in labels for x in ["wrinkle", "dry"]):
+        return "da khô, có dấu hiệu lão hoá"
+    elif any(x in labels for x in ["redness", "sensitive"]):
+        return "da nhạy cảm"
+    elif any(x in labels for x in ["blemish", "freckles"]):
+        return "da hỗn hợp"
+    elif "normal" in labels:
+        return "da thường"
+    else:
+        return "không rõ, cần thêm ảnh chất lượng hơn"
+
 
 # ==== Routes ====
 @app.get("/")
 async def root():
-    return {"message": "Skin Advisor API (Colab Fine-Tune Vit5) is running 🚀"}
+    return {"message": "Skin Advisor API (Vit5 + Skin Classification) is running 🚀"}
+
 
 @app.post("/skinAdvisor")
 async def skin_advisor(data: RequestData):
-    labels_text = ""
-    if data.imageUrl and data.imageUrl.startswith(("http://","https://")):
+    skin_analysis = ""
+
+    # Nếu có ảnh thì phân tích da
+    if data.imageUrl and data.imageUrl.startswith(("http://", "https://")):
         try:
             results = image_model(data.imageUrl)
-            labels_text = filter_skin_labels(results)
-        except:
-            labels_text = ""
+            skin_type = map_labels_to_skin_type(results)
+            skin_analysis = f"Ảnh phân tích cho thấy: {skin_type}."
+        except Exception as e:
+            print("Image model error:", e)
+            skin_analysis = "Không thể phân tích ảnh da."
 
-    # ==== Prompt cực an toàn, friendly ====
-    if labels_text:
+    # Ghép prompt cho chatbot
+    if skin_analysis:
         prompt = (
             f"Bạn là chuyên gia tư vấn chăm sóc da. "
-            f"Ảnh da người dùng cho thấy: {labels_text}. "
+            f"{skin_analysis} "
             f"Người dùng hỏi: {data.userMessage}. "
-            "Trả lời ngắn gọn, thân thiện, bằng tiếng Việt, chỉ tư vấn chăm sóc da, tuyệt đối không gợi ý nguy hiểm."
+            "Hãy trả lời ngắn gọn, thân thiện, bằng tiếng Việt, "
+            "gồm cả nhận xét về tình trạng da và gợi ý phương hướng chăm sóc. "
+            "Tuyệt đối không gợi ý nguy hiểm."
         )
     else:
         prompt = (
             "Bạn là chuyên gia tư vấn chăm sóc da. "
             f"Người dùng hỏi: {data.userMessage}. "
-            "Trả lời ngắn gọn, thân thiện, bằng tiếng Việt, chỉ tư vấn chăm sóc da, tuyệt đối không gợi ý nguy hiểm."
+            "Hãy trả lời ngắn gọn, thân thiện, bằng tiếng Việt, "
+            "chỉ tư vấn chăm sóc da, tuyệt đối không gợi ý nguy hiểm."
         )
 
     try:
-        result = chatbot(
-            prompt,
-            max_new_tokens=80
-        )
-        # Loại bỏ prompt gốc nếu model trả về full text
-        reply = result[0]["generated_text"].replace(prompt, "").strip()
-    except:
+        result = chatbot(prompt, max_new_tokens=120)
+        reply = result[0]["generated_text"].strip()
+        if not reply:
+            reply = "Xin lỗi, mình chưa có câu trả lời phù hợp."
+    except Exception as e:
+        print("Chatbot error:", e)
         reply = "Xin lỗi, bot chưa trả lời được. Vui lòng thử lại."
 
     return {"reply": reply}
