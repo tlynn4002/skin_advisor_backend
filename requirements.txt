@@ -4,11 +4,8 @@ transformers
 torch
 torchvision
 torchaudio
-python-multipart
 pillow
 requests
-pydantic[dotenv]
+pydantic
 aiofiles
 jinja2
-datasets
-
