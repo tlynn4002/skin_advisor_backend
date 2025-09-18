@@ -1,28 +1,21 @@
+# main.py
 from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import Optional
-import requests
 from fastapi.middleware.cors import CORSMiddleware
-import os
+import requests
+from transformers import pipeline
 
 # ==== Hugging Face Inference API ====
-HF_TOKEN = os.getenv("HF_TOKEN")  # bạn đặt biến môi trường HF_TOKEN trong Render
 MODEL_NAME = "lingling707/vit5-skinbot"
-API_URL = f"https://api-inference.huggingface.co/models/{MODEL_NAME}"
-headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+HF_API_URL = f"https://api-inference.huggingface.co/models/{MODEL_NAME}"
 
-# ==== Model phân loại ảnh da (Inference API) ====
-IMAGE_MODEL = "dima806/skin_types_image_detection"
-IMAGE_API_URL = f"https://api-inference.huggingface.co/models/{IMAGE_MODEL}"
+# Nếu model public thì headers có thể để trống {}
+# Nếu private thì tạo secret trên Render: HF_API_TOKEN
+HF_HEADERS = {}
 
-
-def query(payload, url):
-    response = requests.post(url, headers=headers, json=payload)
-    if response.status_code != 200:
-        print("HF API error:", response.text)
-        return None
-    return response.json()
-
+# ==== Model phân loại ảnh da (nhẹ, load local) ====
+image_model = pipeline("image-classification", model="dima806/skin_types_image_detection")
 
 # ==== FastAPI setup ====
 app = FastAPI()
@@ -34,53 +27,64 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 # ==== Request body ====
 class RequestData(BaseModel):
     userMessage: str
     imageUrl: Optional[str] = None
 
-
-# ==== Mapping label -> skin type ====
-def map_labels_to_skin_type(predictions):
-    if not predictions:
-        return "không rõ"
-    labels = [p["label"].lower() for p in predictions]
-    if any(x in labels for x in ["acne", "pimple", "oily"]):
+# ==== Map label sang mô tả tiếng Việt ====
+def map_labels_to_skin_type(label: str):
+    label = label.lower()
+    if label == "oily":
         return "da dầu, dễ nổi mụn"
-    elif any(x in labels for x in ["wrinkle", "dry"]):
-        return "da khô, có dấu hiệu lão hoá"
-    elif any(x in labels for x in ["redness", "sensitive"]):
-        return "da nhạy cảm"
-    elif any(x in labels for x in ["blemish", "freckles"]):
-        return "da hỗn hợp"
-    elif "normal" in labels:
-        return "da thường"
+    elif label == "dry":
+        return "da khô, có thể bong tróc hoặc lão hóa sớm"
+    elif label == "normal":
+        return "da thường, cân bằng"
     else:
-        return "không rõ, cần thêm ảnh chất lượng hơn"
+        return "không xác định rõ loại da"
 
+# ==== Hàm gọi Hugging Face API ====
+def query_hf_model(prompt: str):
+    try:
+        response = requests.post(
+            HF_API_URL,
+            headers=HF_HEADERS,
+            json={"inputs": prompt}
+        )
+        if response.status_code == 200:
+            data = response.json()
+            if isinstance(data, list) and len(data) > 0 and "generated_text" in data[0]:
+                return data[0]["generated_text"].strip()
+            return "Xin lỗi, mình chưa có câu trả lời phù hợp."
+        else:
+            print("HF API error:", response.text)
+            return "Xin lỗi, bot chưa trả lời được. Vui lòng thử lại."
+    except Exception as e:
+        print("HF API exception:", e)
+        return "Có lỗi khi gọi Hugging Face API."
 
 # ==== Routes ====
 @app.get("/")
 async def root():
-    return {"message": "Skin Advisor API (Vit5 via HF Inference API) is running 🚀"}
-
+    return {"message": "Skin Advisor API (Vit5 on Hugging Face API) is running 🚀"}
 
 @app.post("/skinAdvisor")
 async def skin_advisor(data: RequestData):
     skin_analysis = ""
 
     # Nếu có ảnh thì phân tích da
-    if data.imageUrl and data.imageUrl.startswith(("http://", "https://")):
+    if data.imageUrl and data.imageUrl.startswith(("http://","https://")):
         try:
-            results = query({"inputs": data.imageUrl}, IMAGE_API_URL)
-            skin_type = map_labels_to_skin_type(results)
+            results = image_model(data.imageUrl)
+            top = max(results, key=lambda x: x['score'])
+            skin_type = map_labels_to_skin_type(top['label'])
             skin_analysis = f"Ảnh phân tích cho thấy: {skin_type}."
         except Exception as e:
-            print("Image model error:", e)
+            print("Image analysis error:", e)
             skin_analysis = "Không thể phân tích ảnh da."
 
-    # Ghép prompt
+    # Prompt chatbot
     if skin_analysis:
         prompt = (
             f"Bạn là chuyên gia tư vấn chăm sóc da. "
@@ -98,13 +102,5 @@ async def skin_advisor(data: RequestData):
             "chỉ tư vấn chăm sóc da, tuyệt đối không gợi ý nguy hiểm."
         )
 
-    try:
-        result = query({"inputs": prompt, "parameters": {"max_new_tokens": 120}}, API_URL)
-        reply = result[0]["generated_text"].strip() if result else None
-        if not reply:
-            reply = "Xin lỗi, mình chưa có câu trả lời phù hợp."
-    except Exception as e:
-        print("Chatbot error:", e)
-        reply = "Xin lỗi, bot chưa trả lời được. Vui lòng thử lại."
-
+    reply = query_hf_model(prompt)
     return {"reply": reply}
