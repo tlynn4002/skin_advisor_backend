@@ -57,7 +57,7 @@ def query_chatbot(prompt: str):
         response = requests.post(
             HF_CHATBOT_URL,
             headers=HF_HEADERS,
-            json={"inputs": prompt}
+            json={"input": prompt}
         )
         if response.status_code == 200:
             data = response.json()
