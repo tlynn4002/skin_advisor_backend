@@ -8,11 +8,11 @@ import os
 
 # ==== Hugging Face Inference API (Vit5 chatbot) ====
 HF_CHATBOT_MODEL = "lingling707/vit5-skinbot"
-HF_CHATBOT_URL = f"https://api-inference.huggingface.co/models/{HF_CHATBOT_MODEL}"
+HF_CHATBOT_URL = f"https://router.huggingface.co/hf-inference/models/{HF_CHATBOT_MODEL}"
 
 # ==== Hugging Face Inference API (Skin classification) ====
 HF_IMAGE_MODEL = "dima806/skin_types_image_detection"
-HF_IMAGE_URL = f"https://api-inference.huggingface.co/models/{HF_IMAGE_MODEL}"
+HF_IMAGE_URL = f"https://router.huggingface.co/hf-inference/models/{HF_IMAGE_MODEL}"
 
 # Nếu model public thì headers có thể để {}
 # Nếu private thì set token trong Render → Environment Variables: HF_API_TOKEN
