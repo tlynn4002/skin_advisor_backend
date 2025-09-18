@@ -4,6 +4,3 @@ transformers
 pillow
 requests
 python-multipart
-torch
-torchvision
-
