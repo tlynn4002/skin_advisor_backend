@@ -8,7 +8,7 @@ import os
 
 # ==== Hugging Face Inference API (Vit5 chatbot) ====
 HF_CHATBOT_MODEL = "lingling707/vit5-skinbot"
-HF_CHATBOT_URL = f"https://router.huggingface.co/hf-inference/models/{HF_CHATBOT_MODEL}"
+HF_CHATBOT_URL = f"https://api-inference.huggingface.co/models/{HF_CHATBOT_MODEL}"
 
 # ==== Hugging Face Inference API (Skin classification) ====
 HF_IMAGE_MODEL = "dima806/skin_types_image_detection"
